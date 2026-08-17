@@ -1,0 +1,535 @@
+# FPGA-Based 1280×720p CDC Video Processing Pipeline
+
+## Overview
+
+This project implements and verifies an FPGA-based video processing pipeline with independent AXI and pixel clock domains using AMD/Xilinx Vivado video IPs.
+
+The design generates a 1280×720 video test pattern using the Video Test Pattern Generator (TPG) in a 100 MHz clock domain. The generated AXI4-Stream video is provided to the AXI4-Stream to Video Out IP, which is configured to operate with independent AXI and native-video clock domains.
+
+The AXI4-Stream interface operates at 100 MHz, while the native video output operates at a 74.25 MHz pixel clock. The Video Timing Controller (VTC) generates the required 1280×720 video timing in the 74.25 MHz pixel-clock domain.
+
+Two Processor System Reset IPs are used to provide reset synchronization for the two independent clock domains.
+
+The complete design was integrated using Vivado IP Integrator and functionally verified through RTL simulation and waveform analysis.
+
+---
+
+## Objectives
+
+- Design an FPGA-based video pipeline using independent clock domains.
+- Generate 1280×720 video at 60 FPS.
+- Generate AXI4-Stream video using the Video Test Pattern Generator.
+- Operate the AXI4-Stream interface at 100 MHz.
+- Operate the native video output at a 74.25 MHz pixel clock.
+- Configure the AXI4-Stream to Video Out IP for independent AXI and video clocks.
+- Generate synchronized video timing using the Video Timing Controller.
+- Use separate Processor System Reset IPs for the two clock domains.
+- Configure the video IPs through AXI4-Lite transactions.
+- Verify AXI4-Stream and native video signals through RTL simulation.
+- Analyze clock-domain behavior and video timing using Vivado waveforms.
+
+---
+
+## Block Diagram
+
+![CDC Video Pipeline Block Diagram]
+
+The design consists of two major clock domains.
+
+### 100 MHz AXI / Stream Clock Domain
+
+The 100 MHz domain is used for:
+
+- AXI Traffic Generator
+- AXI Interconnect
+- AXI4-Lite control interfaces
+- Video Test Pattern Generator
+- AXI4-Stream interface of the AXI4-Stream to Video Out IP
+
+### 74.25 MHz Pixel / Video Clock Domain
+
+The 74.25 MHz domain is used for:
+
+- Video Timing Controller video timing generation
+- Native video output interface of the AXI4-Stream to Video Out IP
+
+The overall video data path is:
+
+```text
+                  100 MHz AXI / STREAM DOMAIN
+
+                  ┌──────────────────────┐
+                  │  AXI Traffic         │
+                  │  Generator           │
+                  └──────────┬───────────┘
+                             │
+                         AXI4-Lite
+                             │
+                             ▼
+                  ┌──────────────────────┐
+                  │  AXI Interconnect    │
+                  └──────────┬───────────┘
+                             │
+                         AXI4-Lite
+                             │
+                 ┌───────────┴───────────┐
+                 │                       │
+                 ▼                       ▼
+        ┌─────────────────┐      ┌─────────────────┐
+        │       TPG       │      │       VTC       │
+        │    100 MHz      │      │ AXI-Lite Ctrl.  │
+        └────────┬────────┘      └─────────────────┘
+                 │
+                 │ AXI4-Stream
+                 │
+                 ▼
+        ┌─────────────────────────────────────┐
+        │      AXI4-Stream to Video Out       │
+        │                                     │
+        │        Independent Clock Mode       │
+        │                                     │
+        │ AXI Stream Clock : 100 MHz          │
+        │ Video Clock      : 74.25 MHz        │
+        └──────────────────┬──────────────────┘
+                           │
+                           │ Native Video
+                           ▼
+
+                    74.25 MHz PIXEL
+                     CLOCK DOMAIN
+
+                  ┌─────────────────┐
+                  │       VTC       │
+                  │    74.25 MHz    │
+                  └────────┬────────┘
+                           │
+                           ▼
+                     Native Video
+
+                       Output
+```
+Main IP Cores
+IP Core	Purpose
+Clock Wizard	Generates the 100 MHz AXI clock and 74.25 MHz pixel/video clock
+Processor System Reset 0	Synchronizes reset to the 100 MHz clock domain
+Processor System Reset 1	Synchronizes reset to the 74.25 MHz clock domain
+AXI Traffic Generator	Generates AXI4-Lite configuration transactions
+AXI Interconnect	Connects the AXI Traffic Generator to the video IP control interfaces
+Video Test Pattern Generator (TPG)	Generates 24-bit AXI4-Stream video data
+Video Timing Controller (VTC)	Generates 1280×720 native-video timing
+AXI4-Stream to Video Out	Converts AXI4-Stream video into native video output using independent clocks
+Clock Architecture
+
+The design uses two independent clocks generated by the Clock Wizard.
+
+Clock Domain	Frequency	Main Function
+AXI / Stream Clock	100 MHz	AXI4-Lite control and AXI4-Stream video
+Pixel / Video Clock	74.25 MHz	Native video timing and output
+Clock Generation
+
+The external input clock is:
+
+Input Clock = 100 MHz
+
+The Clock Wizard generates:
+
+clk_out1 = 100 MHz
+clk_out2 = 74.25 MHz
+
+The 100 MHz clock is used by the AXI and AXI4-Stream side of the design.
+
+The 74.25 MHz clock is used by the native video output and VTC timing generation.
+
+Clock-Domain Crossing
+
+A key feature of this project is the use of independent AXI and native-video clock domains.
+
+The AXI4-Stream to Video Out IP is configured with independent clocks:
+
+AXI4-Stream interface clock = 100 MHz
+Native video output clock   = 74.25 MHz
+
+The AXI4-Stream video generated by the TPG therefore enters the AXI4-Stream to Video Out IP in the 100 MHz clock domain, while the native video interface operates using the 74.25 MHz pixel clock.
+
+100 MHz AXI4-Stream Domain
+          │
+          │ AXI4-Stream
+          ▼
+┌──────────────────────────────┐
+│ AXI4-Stream to Video Out IP  │
+│                              │
+│     Independent Mode         │
+│                              │
+│ AXI Clock   = 100 MHz        │
+│ Video Clock = 74.25 MHz      │
+└──────────────┬───────────────┘
+               │
+               │ Native Video
+               ▼
+      74.25 MHz Video Domain
+
+The AXI4-Stream to Video Out IP provides the required clock-domain handling between its AXI4-Stream input interface and native-video output interface when operating with independent clocks.
+
+No external AXI4-Stream Clock Converter is used in this design.
+
+Reset Architecture
+
+Two Processor System Reset IPs are used because the design contains two independent clock domains.
+
+Processor System Reset 0
+
+Processor System Reset 0 is synchronized to the 100 MHz clock:
+
+slowest_sync_clk = 100 MHz
+
+It provides reset synchronization for the AXI/control and source-side logic.
+
+The 100 MHz domain includes:
+
+AXI Traffic Generator
+AXI Interconnect
+TPG
+AXI4-Lite control interfaces
+AXI4-Stream source-side logic
+Processor System Reset 1
+
+Processor System Reset 1 is synchronized to the 74.25 MHz clock:
+
+slowest_sync_clk = 74.25 MHz
+
+It provides reset synchronization for the video/pixel-clock domain.
+
+The 74.25 MHz domain includes:
+
+VTC video timing generation
+Native video output side
+Video output reset logic
+
+Using separate reset controllers ensures that reset signals are synchronized with their corresponding clock domains.
+
+AXI4-Lite Control Path
+
+The AXI Traffic Generator is used as the AXI4-Lite master for configuring the video IPs.
+
+The control path is:
+
+AXI Traffic Generator
+          │
+          │ AXI4-Lite
+          ▼
+   AXI Interconnect
+       ┌──┴──┐
+       │     │
+       ▼     ▼
+      TPG    VTC
+
+The AXI4-Lite control interfaces operate in the 100 MHz clock domain.
+
+The AXI Traffic Generator uses COE initialization files containing the required address and data transaction sequences.
+
+AXI4-Stream Video Path
+
+The Video Test Pattern Generator produces a 24-bit AXI4-Stream video interface.
+
+The primary video signals are:
+
+Signal	Description
+TDATA[23:0]	24-bit pixel data
+TVALID	Indicates valid video data
+TREADY	Indicates that the downstream interface can accept data
+TUSER	Frame boundary / Start-of-Frame indication
+TLAST	End-of-line indication
+
+The data path is:
+
+TPG
+ │
+ │ AXI4-Stream
+ │
+ │ TDATA
+ │ TVALID
+ │ TREADY
+ │ TUSER
+ │ TLAST
+ ▼
+AXI4-Stream to Video Out
+ │
+ │ Native Video
+ ▼
+Video Output
+Video Configuration
+
+The video pipeline is configured for 1280×720 progressive video.
+
+Parameter	Value
+Resolution	1280 × 720
+Active Width	1280 pixels
+Active Height	720 lines
+Pixel Data Width	24 bits
+Target Frame Rate	60 FPS
+AXI / Stream Clock	100 MHz
+Pixel / Video Clock	74.25 MHz
+Horizontal Front Porch	110
+Horizontal Sync	40
+Horizontal Back Porch	220
+Horizontal Total	1650
+Vertical Front Porch	5
+Vertical Sync	5
+Vertical Back Porch	20
+Vertical Total	750
+1280×720 Timing Calculation
+
+The total number of pixel-clock cycles per frame is:
+
+Horizontal Total × Vertical Total
+
+
+= 1650 × 750
+
+
+= 1,237,500 pixel clocks/frame
+
+For a target frame rate of 60 FPS:
+
+Pixel Clock = 1,237,500 × 60
+```text
+            = 74,250,000 Hz
+            = 74.25 MHz
+```
+Therefore, the 74.25 MHz pixel clock is selected for the 1280×720 @ 60 FPS video timing.
+
+The corresponding frame period is:
+
+Frame Period = 1 / 60
+             ≈ 16.67 ms
+Video Timing Controller
+
+The VTC is responsible for generating the timing required by the native video output.
+
+The configured timing parameters are:
+
+Horizontal Timing
+Active Video  = 1280
+Front Porch   = 110
+Sync Width    = 40
+Back Porch    = 220
+Total         = 1650
+Vertical Timing
+Active Video  = 720
+Front Porch   = 5
+Sync Width    = 5
+Back Porch    = 20
+Total         = 750
+
+The VTC video timing clock is the 74.25 MHz pixel clock.
+
+Its AXI4-Lite control interface is controlled from the 100 MHz AXI clock domain.
+
+RTL Simulation
+
+A Verilog testbench was created for the generated HDL wrapper.
+
+Testbench Configuration
+Input Clock     : 100 MHz
+Clock Period    : 10 ns
+Initial Reset   : 100 ns
+Simulation Time : 200 ms
+
+The 100 MHz clock is generated using:
+
+forever #5 clk_100MHz = ~clk_100MHz;
+
+which produces a 10 ns clock period:
+
+T = 10 ns
+F = 1 / T
+  = 100 MHz
+The external reset is initially asserted and released after 100 ns.
+
+The simulation is run for 200 ms to allow the video pipeline to initialize and provide sufficient time to observe multiple video frames and the final native-video output.
+
+Simulation and Verification
+
+The design was verified using Vivado RTL simulation and waveform analysis.
+
+AXI4-Stream Signals
+
+The following signals were monitored:
+
+m_axis_video_TDATA[23:0]
+m_axis_video_TVALID
+m_axis_video_TREADY
+m_axis_video_TUSER
+m_axis_video_TLAST
+
+These signals were used to verify the AXI4-Stream video transfer between the TPG and AXI4-Stream to Video Out IP.
+
+Native Video Signals
+
+The final video output was verified using:
+
+vid_data[23:0]
+vid_active_video
+vid_hsync
+vid_vsync
+vid_hblank
+vid_vblank
+VTC / Status Signals
+
+The following signals were also monitored during simulation:
+
+vtg_active_video
+vtg_hsync
+vtg_vsync
+vtg_hblank
+vtg_vblank
+locked
+vtg_ce
+Simulation Results
+Block Design
+
+The block design shows the two-clock architecture, including the Clock Wizard, two Processor System Reset blocks, AXI Traffic Generator, AXI Interconnect, TPG, VTC, and AXI4-Stream to Video Out.
+
+CDC Video Pipeline Waveform
+
+The simulation waveform demonstrates the behavior of the video pipeline across the independent clock domains.
+
+The waveform was used to monitor:
+
+AXI4-Stream video data
+TVALID
+TREADY
+TUSER
+TLAST
+Native video data
+Active video
+HSYNC
+VSYNC
+HBLANK
+VBLANK
+VTC timing
+Video lock status
+
+The final native-video output shows the expected 1280×720 video timing.
+
+Verification Approach
+
+The verification process consisted of the following steps:
+
+Generated the Vivado Block Design.
+Generated the HDL wrapper.
+Created a Verilog simulation testbench.
+Applied a 100 MHz input clock.
+Applied and released the external reset.
+Allowed the Clock Wizard to generate the internal 100 MHz and 74.25 MHz clocks.
+Configured the TPG and VTC through AXI4-Lite transactions generated by the AXI Traffic Generator.
+Generated AXI4-Stream video from the TPG.
+Passed the AXI4-Stream video to the AXI4-Stream to Video Out IP.
+Used independent AXI and video clocks.
+Generated 1280×720 native-video timing using the VTC.
+Monitored AXI4-Stream and native-video signals through waveform analysis.
+Verified video timing and output behavior over an extended 200 ms simulation.
+Project Comparison
+
+This project is an extension of the basic video pipeline project.
+
+Feature	Basic Video Pipeline	CDC Video Pipeline
+Resolution	1280×720	1280×720
+Target FPS	60 FPS	60 FPS
+AXI Clock	100 MHz	100 MHz
+Pixel Clock	74.25 MHz	74.25 MHz
+Clock Architecture	Common clock configuration	Independent AXI/video clocks
+AXI4-Stream to Video Out	Used	Used in Independent Mode
+External Clock Converter	No	No
+Processor System Reset	Single reset domain	Two reset domains
+TPG	Yes	Yes
+VTC	Yes	Yes
+RTL Simulation	Yes	Yes
+Waveform Verification	Yes	Yes
+
+The key architectural improvement in this project is the separation of the AXI4-Stream and native-video clock domains.
+
+Configuration Files
+
+The AXI Traffic Generator uses COE files for its transaction initialization.
+
+config/
+├── axi_traffic_gen_address.coe
+└── axi_traffic_gen_data.coe
+
+These files contain the address and data sequences used to configure the AXI-connected video IPs.
+
+Repository Structure
+fpga-cdc-video-pipeline/
+│
+├── README.md
+│
+├── rtl/
+│   ├── design_1.v
+│   └── design_1_wrapper.v
+│
+├── simulation/
+│   └── design_1_wrapper_tb.v
+│
+├── config/
+│   ├── axi_traffic_gen_address.coe
+│   └── axi_traffic_gen_data.coe
+│
+└── docs/
+    ├── block-diagram.png
+    └── cdc-video-output-waveform.png
+Tools and Technologies
+AMD/Xilinx Vivado 2023.2
+Verilog HDL
+FPGA Design
+AXI4-Stream
+AXI4-Lite
+AXI Traffic Generator
+AXI Interconnect
+Video Test Pattern Generator (TPG)
+Video Timing Controller (VTC)
+AXI4-Stream to Video Out
+Clock Domain Crossing (CDC)
+Clock Wizard
+Processor System Reset
+RTL Simulation
+Waveform Analysis
+Key Learning Outcomes
+
+This project provided practical experience with:
+
+Multi-clock FPGA system design
+Clock-domain crossing concepts
+Independent AXI and pixel clock domains
+AXI4-Stream video interfaces
+AXI4-Lite control interfaces
+AXI Traffic Generator configuration
+Video Timing Controller configuration
+Test Pattern Generator configuration
+AXI4-Stream to Video Out configuration
+Independent clock operation of video output IP
+Synchronized reset generation for multiple clock domains
+1280×720 video timing
+60 FPS pixel-clock calculation
+Vivado IP Integrator
+HDL wrapper generation
+RTL simulation
+Waveform-based debugging and functional verification
+Future Improvements
+
+Possible extensions of this project include:
+
+Integrating AXI VDMA for frame-buffer based video processing.
+Adding AXI4-Stream Data FIFO for additional buffering.
+Integrating VPSS for video processing.
+Adding YCbCr-to-RGB color-space conversion.
+Integrating Chroma Resampler or Sensor Demosaic IP.
+Extending the pipeline to support additional video resolutions.
+Verifying the design on FPGA hardware with a physical video output interface.
+
+Author
+Pranavi Pagidi
+FPGA Design & Verification Intern
+HTIC, IIT Madras Research Park
+
+GitHub: pagidipranavidas
