@@ -528,7 +528,7 @@ Integrating Chroma Resampler or Sensor Demosaic IP.
 Extending the pipeline to support additional video resolutions.
 Verifying the design on FPGA hardware with a physical video output interface.
 
-Author
+##Author 
 Pranavi Pagidi
 FPGA Design & Verification Intern
 HTIC, IIT Madras Research Park
